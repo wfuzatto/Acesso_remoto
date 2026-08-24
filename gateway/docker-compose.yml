@@ -9,7 +9,6 @@ services:
       PUBLIC_BASE_URL: https://${REMOTE_DOMAIN}
       STUN_URL: stun:${REMOTE_DOMAIN}:3478
       TURN_URL: turn:${REMOTE_DOMAIN}:3478?transport=udp
-      TURN_TLS_URL: turns:${REMOTE_DOMAIN}:5349?transport=tcp
       TURN_SECRET: ${TURN_SECRET}
     volumes:
       - relay-data:/data
@@ -47,7 +46,6 @@ services:
       - --server-name=${REMOTE_DOMAIN}
       - --external-ip=${PUBLIC_IP}
       - --listening-port=3478
-      - --tls-listening-port=5349
       - --min-port=${TURN_MIN_PORT:-49160}
       - --max-port=${TURN_MAX_PORT:-49200}
       - --no-multicast-peers
