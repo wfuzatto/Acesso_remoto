@@ -5,7 +5,7 @@
         android:allowBackup="true"
         android:label="Acesso Remoto"
         android:theme="@style/Theme.AcessoRemoto"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="${usesCleartext}">
         <activity
             android:name=".MainActivity"
             android:exported="true"
