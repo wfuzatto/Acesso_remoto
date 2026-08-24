@@ -1,0 +1,70 @@
+services:
+  relay:
+    build:
+      context: ../server
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      DATA_DIR: /data
+      PUBLIC_BASE_URL: https://${REMOTE_DOMAIN}
+      STUN_URL: stun:${REMOTE_DOMAIN}:3478
+      TURN_URL: turn:${REMOTE_DOMAIN}:3478?transport=udp
+      TURN_TLS_URL: turns:${REMOTE_DOMAIN}:5349?transport=tcp
+      TURN_SECRET: ${TURN_SECRET}
+    volumes:
+      - relay-data:/data
+    networks:
+      - backend
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    environment:
+      REMOTE_DOMAIN: ${REMOTE_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - backend
+    depends_on:
+      - relay
+
+  coturn:
+    image: coturn/coturn:4.16.0-r0
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --no-cli
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET}
+      - --realm=${REMOTE_DOMAIN}
+      - --server-name=${REMOTE_DOMAIN}
+      - --external-ip=${PUBLIC_IP}
+      - --listening-port=3478
+      - --tls-listening-port=5349
+      - --min-port=${TURN_MIN_PORT:-49160}
+      - --max-port=${TURN_MAX_PORT:-49200}
+      - --no-multicast-peers
+      - --no-loopback-peers
+      - --stale-nonce=600
+      - --total-quota=1200
+      - --user-quota=12
+      - --channel-lifetime=600
+      - --permission-lifetime=300
+      - --log-file=stdout
+      - --simple-log
+
+volumes:
+  relay-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  backend:
+    driver: bridge
