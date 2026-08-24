@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        RelayUrlBox.Text = Environment.GetEnvironmentVariable("ACESSO_REMOTO_RELAY") ?? "ws://127.0.0.1:8080";
         Closed += (_, _) => _cts?.Cancel();
     }
 
@@ -54,10 +55,12 @@ public partial class MainWindow : Window
             _socket?.Dispose();
             _cts = new CancellationTokenSource();
             _socket = new ClientWebSocket();
-            StatusText.Text = "Conectando ao relay...";
-            var relay = Environment.GetEnvironmentVariable("ACESSO_REMOTO_RELAY") ?? "ws://127.0.0.1:8080";
-            await _socket.ConnectAsync(new Uri(relay), _cts.Token);
-            await SendJsonAsync(new { type = "register.viewer", platform = "windows", name = Environment.MachineName });
+            StatusText.Text = "Conectando ao gateway...";
+            var relay = RelayUrlBox.Text.Trim();
+            if (!Uri.TryCreate(relay, UriKind.Absolute, out var relayUri) || (relayUri.Scheme != "ws" && relayUri.Scheme != "wss"))
+                throw new InvalidOperationException("Gateway inválido. Use ws:// em laboratório ou wss:// em produção.");
+            await _socket.ConnectAsync(relayUri, _cts.Token);
+            await SendJsonAsync(new { type = "register.viewer", platform = "windows", name = Environment.MachineName, deviceId = Environment.MachineName });
             _ = ReceiveLoopAsync(_cts.Token);
             await SendJsonAsync(new { type = "connection.request", accessId, unattended });
             StatusText.Text = unattended ? "Autenticando..." : "Aguardando aceite no computador remoto...";
@@ -116,12 +119,10 @@ public partial class MainWindow : Window
             case "connection.pending":
                 _sessionId = msg.GetProperty("sessionId").GetString();
                 break;
-
             case "auth.challenge":
                 _sessionId = msg.GetProperty("sessionId").GetString();
                 await RespondToChallengeAsync(msg);
                 break;
-
             case "connection.accepted":
                 _sessionId = msg.GetProperty("sessionId").GetString();
                 _passwordForAttempt = null;
@@ -131,7 +132,6 @@ public partial class MainWindow : Window
                     RemoteImage.Focus();
                 });
                 break;
-
             case "connection.error":
                 var code = msg.TryGetProperty("code", out var c) ? c.GetString() : "ERROR";
                 _passwordForAttempt = null;
@@ -143,7 +143,6 @@ public partial class MainWindow : Window
                     _ => $"Erro: {code}"
                 });
                 break;
-
             case "session.closed":
                 _sessionId = null;
                 await Dispatcher.InvokeAsync(() =>
@@ -163,17 +162,12 @@ public partial class MainWindow : Window
             var salt = Convert.FromBase64String(msg.GetProperty("salt").GetString()!);
             var nonce = Convert.FromBase64String(msg.GetProperty("nonce").GetString()!);
             var iterations = msg.GetProperty("iterations").GetInt32();
-            var verifier = Rfc2898DeriveBytes.Pbkdf2(
-                Encoding.UTF8.GetBytes(_passwordForAttempt), salt, iterations,
-                HashAlgorithmName.SHA256, 32);
+            var verifier = Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(_passwordForAttempt), salt, iterations, HashAlgorithmName.SHA256, 32);
             using var hmac = new HMACSHA256(verifier);
             var proof = Convert.ToBase64String(hmac.ComputeHash(nonce));
             await SendJsonAsync(new { type = "auth.response", sessionId = _sessionId, proof });
         }
-        catch
-        {
-            await Dispatcher.InvokeAsync(() => StatusText.Text = "Falha na autenticação");
-        }
+        catch { await Dispatcher.InvokeAsync(() => StatusText.Text = "Falha na autenticação"); }
     }
 
     private void ShowJpeg(byte[] jpeg)
@@ -222,17 +216,11 @@ public partial class MainWindow : Window
         double renderWidth, renderHeight, offsetX, offsetY;
         if (sourceRatio > controlRatio)
         {
-            renderWidth = RemoteImage.ActualWidth;
-            renderHeight = renderWidth / sourceRatio;
-            offsetX = 0;
-            offsetY = (RemoteImage.ActualHeight - renderHeight) / 2;
+            renderWidth = RemoteImage.ActualWidth; renderHeight = renderWidth / sourceRatio; offsetX = 0; offsetY = (RemoteImage.ActualHeight - renderHeight) / 2;
         }
         else
         {
-            renderHeight = RemoteImage.ActualHeight;
-            renderWidth = renderHeight * sourceRatio;
-            offsetX = (RemoteImage.ActualWidth - renderWidth) / 2;
-            offsetY = 0;
+            renderHeight = RemoteImage.ActualHeight; renderWidth = renderHeight * sourceRatio; offsetX = (RemoteImage.ActualWidth - renderWidth) / 2; offsetY = 0;
         }
         var x = (point.X - offsetX) / renderWidth;
         var y = (point.Y - offsetY) / renderHeight;
